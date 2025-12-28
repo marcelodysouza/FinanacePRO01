@@ -1,0 +1,7 @@
+{
+  "name": "Copy of FinancePro - Fluxo de Caixa Inteligente",
+  "description": "Uma plataforma completa para gestão de fluxo de caixa com dashboard interativo, relatórios detalhados e insights inteligentes usando IA.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
