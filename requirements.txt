@@ -2,4 +2,4 @@ Streamlit==1.52.2
 Pandas==2.2.3
 Plotly==6.0.0	
 XlsxWriter==3.2.0	
-Google Generative AI==0.8.6
+google-generativeai
