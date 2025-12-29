@@ -27,7 +27,7 @@ def check_password():
 if check_password():
     # Configuração da API do Gemini
     genai.configure(api_key="AIzaSyCnu_axZkHfr4LAvFkNFiHeQZxocYS6Zi8") # Substitua pela sua chave real
-   model = genai.GenerativeModel(model_name="models/gemini-1.5-flash")
+   model = genai.GenerativeModel("gemini-1.5-flash")
 
     # Configuração da Página
     st.set_page_config(page_title="FinancePro", layout="wide", page_icon="💰")
