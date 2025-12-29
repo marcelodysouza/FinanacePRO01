@@ -216,4 +216,34 @@ if check_password():
 
 else:
     st.warning("Por favor, faça login na barra lateral para aceder ao FinancePro.")
-    st.info("Utilizador padrão: admin | Senha: 1234")    
+    st.info("Utilizador padrão: admin | Senha: 1234")   
+# --- NOVO MENU: LEMBRETES ---
+elif menu == "Lembretes":
+    st.header("📅 Contas a Pagar & Lembretes")
+    
+    col_l1, col_l2 = st.columns([1, 2])
+    
+    with col_l1:
+        st.subheader("Novo Lembrete")
+        titulo_lembrete = st.text_input("O que pagar? (ex: Aluguel)")
+        data_vencimento = st.date_input("Vencimento")
+        if st.button("Agendar Lembrete"):
+            if titulo_lembrete:
+                # Aqui o sistema simula a criação de uma tarefa
+                st.success(f"Lembrete '{titulo_lembrete}' agendado para {data_vencimento}!")
+                if 'lembretes' not in st.session_state:
+                    st.session_state.lembretes = []
+                st.session_state.lembretes.append({"Título": titulo_lembrete, "Data": str(data_vencimento), "Status": "Pendente"})
+            else:
+                st.warning("Digite um título para o lembrete.")
+
+    with col_l2:
+        st.subheader("Próximos Vencimentos")
+        if 'lembretes' in st.session_state and st.session_state.lembretes:
+            df_lembretes = pd.DataFrame(st.session_state.lembretes)
+            st.table(df_lembretes)
+            if st.button("Limpar Lembretes Concluídos"):
+                st.session_state.lembretes = [l for l in st.session_state.lembretes if l['Status'] == 'Pendente']
+                st.rerun()
+        else:
+            st.write("Nenhum lembrete para os próximos dias.")    
