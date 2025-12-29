@@ -26,7 +26,7 @@ def check_password():
 # --- INÍCIO DO APLICATIVO ---
 if check_password():
     # Configuração da API do Gemini
-    genai.configure(api_key="SUA_CHAVE_AQUI") # Substitua pela sua chave real
+    genai.configure(api_key="AIzaSyCnu_axZkHfr4LAvFkNFiHeQZxocYS6Zi8") # Substitua pela sua chave real
     model = genai.GenerativeModel('gemini-1.5-flash')
 
     # Configuração da Página
