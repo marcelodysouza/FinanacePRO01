@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, Receipt, FileText, Settings, LogOut, PlusCircle, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon } from 'lucide-react';
+import { LayoutDashboard, Receipt, FileText, Settings, Target } from 'lucide-react';
 
 export const CATEGORIES = {
   INCOME: ['Vendas', 'Serviços', 'Investimentos', 'Outros'],
@@ -19,5 +19,6 @@ export const PAYMENT_METHODS = [
 export const NAV_ITEMS = [
   { label: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/' },
   { label: 'Transações', icon: <Receipt size={20} />, path: '/transactions' },
+  { label: 'Metas', icon: <Target size={20} />, path: '/goals' },
   { label: 'Relatórios', icon: <FileText size={20} />, path: '/reports' }
 ];

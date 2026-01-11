@@ -1,52 +1,6 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Transaction, Category, User, UserRole, TransactionType } from '../types';
-
-/**
- * IMPORTANTE: Para o funcionamento pleno, execute este SQL no editor do seu projeto Supabase:
- * 
- * -- 1. Tabela de Transações
- * create table public.transactions (
- *   id uuid not null default gen_random_uuid(),
- *   user_id uuid not null references auth.users(id),
- *   date date not null,
- *   category text not null,
- *   description text not null,
- *   amount numeric not null,
- *   payment_method text not null,
- *   type text not null,
- *   attachment text,
- *   attachment_name text,
- *   created_at timestamptz not null default now(),
- *   constraint transactions_pkey primary key (id)
- * );
- * alter table public.transactions enable row level security;
- * create policy "Users can manage own transactions" on public.transactions for all using (auth.uid() = user_id);
- * 
- * -- 2. Tabela de Categorias
- * create table public.categories (
- *   id uuid not null default gen_random_uuid(),
- *   user_id uuid not null references auth.users(id),
- *   name text not null,
- *   type text not null,
- *   created_at timestamptz not null default now(),
- *   constraint categories_pkey primary key (id)
- * );
- * alter table public.categories enable row level security;
- * create policy "Users can manage own categories" on public.categories for all using (auth.uid() = user_id);
- * 
- * -- 3. Tabela de Backups
- * create table public.backups (
- *   id uuid not null default gen_random_uuid(),
- *   user_id uuid not null references auth.users(id),
- *   payload jsonb not null,
- *   type text not null,
- *   created_at timestamptz not null default now(),
- *   constraint backups_pkey primary key (id)
- * );
- * alter table public.backups enable row level security;
- * create policy "Users can manage own backups" on public.backups for all using (auth.uid() = user_id);
- */
+import { Transaction, Category, User, UserRole, TransactionType, FinancialGoal, AISettings } from '../types';
 
 const SUPABASE_URL = 'https://naujnnypepexlyalfeta.supabase.co';
 const PROVIDED_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hdWpubnlwZXBleGx5YWxmZXRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2NjE1MTcsImV4cCI6MjA4MjIzNzUxN30.w56CYeN2i-S7F9Pn3cljX9L23mYfOYWWqa6__ai-MAU';
@@ -61,6 +15,11 @@ export const supabase: SupabaseClient | null = SUPABASE_URL && SUPABASE_ANON_KEY
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) 
   : null;
 
+const DEFAULT_AI_SETTINGS: AISettings = {
+  insightsPrompt: "Você é um mentor financeiro estratégico e encorajador. Analise a performance financeira e dê um feedback curto e uma ação prática em português brasileiro.",
+  receiptPrompt: "Analise este documento e extraia os dados financeiros. Se for um recibo, cupom ou nota, identifique: o valor total (number), a data no formato YYYY-MM-DD, uma descrição curta (nome do estabelecimento/serviço) e sugira uma categoria financeira lógica."
+};
+
 export const PersistenceService = {
   isConfigured(): boolean {
     return !!supabase;
@@ -73,13 +32,13 @@ export const PersistenceService = {
       if (!session) return null;
       const { user } = session;
       
-      const role = UserRole.ADVANCED;
-
+      const { data: profile } = await supabase.from('profiles').select('role, full_name').eq('id', user.id).single();
+      
       return {
         id: user.id,
-        name: user.user_metadata.full_name || user.email?.split('@')[0] || 'Usuário',
+        name: profile?.full_name || user.user_metadata.full_name || user.email?.split('@')[0] || 'Usuário',
         email: user.email || '',
-        role: role
+        role: (profile?.role as UserRole) || UserRole.NORMAL
       };
     } catch (e) { return null; }
   },
@@ -92,31 +51,8 @@ export const PersistenceService = {
     return { user, error: null };
   },
 
-  async signUp(email: string, pass: string, name: string) {
-    if (!supabase) return { error: 'Configuração ausente.' };
-    const { error } = await supabase.auth.signUp({
-      email,
-      password: pass,
-      options: { data: { full_name: name } }
-    });
-    return { error: error?.message || null };
-  },
-
   async signOut() {
     if (supabase) await supabase.auth.signOut();
-  },
-
-  async resetPassword(email: string) {
-    if (!supabase) return { error: 'Configuração ausente.' };
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
-    });
-    return { error: error?.message || null };
-  },
-
-  async getUsers(): Promise<User[]> {
-    const current = await this.getCurrentUser();
-    return current ? [current] : [];
   },
 
   async getTransactions(): Promise<Transaction[]> {
@@ -124,13 +60,7 @@ export const PersistenceService = {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
-
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false });
-
+      const { data, error } = await supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: false });
       if (error) throw error;
       return data.map(t => ({
         id: t.id,
@@ -150,22 +80,11 @@ export const PersistenceService = {
     if (!supabase) return null;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
-
-    const { data, error } = await supabase
-      .from('transactions')
-      .insert([{
-        user_id: user.id,
-        date: tx.date,
-        category: tx.category,
-        description: tx.description,
-        amount: tx.amount,
-        payment_method: tx.paymentMethod,
-        type: tx.type,
-        attachment: tx.attachment,
-        attachment_name: tx.attachmentName
-      }])
-      .select().single();
-
+    const { data, error } = await supabase.from('transactions').insert([{
+      user_id: user.id, date: tx.date, category: tx.category, description: tx.description,
+      amount: tx.amount, payment_method: tx.paymentMethod, type: tx.type,
+      attachment: tx.attachment, attachment_name: tx.attachmentName
+    }]).select().single();
     if (error) return null;
     return { ...tx, id: data.id };
   },
@@ -174,23 +93,11 @@ export const PersistenceService = {
     if (!supabase) return null;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
-
-    const { data, error } = await supabase
-      .from('transactions')
-      .update({
-        date: tx.date,
-        category: tx.category,
-        description: tx.description,
-        amount: tx.amount,
-        payment_method: tx.paymentMethod,
-        type: tx.type,
-        attachment: tx.attachment,
-        attachment_name: tx.attachmentName
-      })
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .select().single();
-
+    const { data, error } = await supabase.from('transactions').update({
+      date: tx.date, category: tx.category, description: tx.description,
+      amount: tx.amount, payment_method: tx.paymentMethod, type: tx.type,
+      attachment: tx.attachment, attachment_name: tx.attachmentName
+    }).eq('id', id).eq('user_id', user.id).select().single();
     if (error) return null;
     return { ...tx, id: data.id };
   },
@@ -207,13 +114,7 @@ export const PersistenceService = {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return this.getDefaultCategories();
-
-      const { data, error } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('name');
-      
+      const { data, error } = await supabase.from('categories').select('*').eq('user_id', user.id).order('name');
       if (error || !data || data.length === 0) return this.getDefaultCategories();
       return data.map(c => ({ id: c.id, name: c.name, type: c.type as TransactionType }));
     } catch { return this.getDefaultCategories(); }
@@ -221,74 +122,63 @@ export const PersistenceService = {
 
   async addCategory(name: string, type: TransactionType): Promise<Category | null> {
     if (!supabase) return null;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-    const { data, error } = await supabase
-      .from('categories')
-      .insert([{ name, type, user_id: user.id }])
-      .select().single();
-    if (error) return null;
-    return { id: data.id, name: data.name, type: data.type as TransactionType };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data, error } = await supabase.from('categories').insert([{
+        user_id: user.id, name, type
+      }]).select().single();
+      if (error) return null;
+      return { id: data.id, name: data.name, type: data.type as TransactionType };
+    } catch { return null; }
   },
 
   async updateCategory(id: string, name: string, type: TransactionType): Promise<Category | null> {
     if (!supabase) return null;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-    const { data, error } = await supabase
-      .from('categories')
-      .update({ name, type })
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .select().single();
-    if (error) return null;
-    return { id: data.id, name: data.name, type: data.type as TransactionType };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data, error } = await supabase.from('categories').update({ name, type }).eq('id', id).eq('user_id', user.id).select().single();
+      if (error) return null;
+      return { id: data.id, name: data.name, type: data.type as TransactionType };
+    } catch { return null; }
   },
 
   async deleteCategory(id: string) {
     if (!supabase) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase.from('categories').delete().eq('id', id).eq('user_id', user.id);
-  },
-
-  async createBackupSnapshot(transactions: Transaction[], categories: Category[]): Promise<{ success: boolean, tableMissing?: boolean }> {
-    if (!supabase) return { success: false };
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return { success: false };
+      if (!user) return;
+      await supabase.from('categories').delete().eq('id', id).eq('user_id', user.id);
+    } catch {}
+  },
 
-      const snapshot = {
-        timestamp: new Date().toISOString(),
-        transactions_count: transactions.length,
-        categories_count: categories.length,
-        data: { transactions, categories }
-      };
+  async getGoals(): Promise<FinancialGoal[]> {
+    if (!supabase) return [];
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const { data, error } = await supabase.from('goals').select('*').eq('user_id', user.id);
+    if (error) return [];
+    return data.map(g => ({ id: g.id, userId: g.user_id, type: g.type as any, amount: parseFloat(g.amount), month: g.month }));
+  },
 
-      const { error } = await supabase
-        .from('backups')
-        .insert([{
-          user_id: user.id,
-          payload: snapshot,
-          type: 'AUTO_BACKUP'
-        }]);
+  async saveGoal(goal: Omit<FinancialGoal, 'id' | 'userId'>): Promise<boolean> {
+    if (!supabase) return false;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+    await supabase.from('goals').delete().eq('user_id', user.id).eq('type', goal.type).eq('month', goal.month);
+    const { error } = await supabase.from('goals').insert([{ user_id: user.id, type: goal.type, amount: goal.amount, month: goal.month }]);
+    return !error;
+  },
 
-      if (error) {
-        // Silencia avisos técnicos de schema cache ou tabela ausente para evitar poluição do console
-        const isTableMissing = error.code === '42P01' || 
-                              error.message.includes('Could not find the table') || 
-                              error.message.includes('schema cache');
-        
-        if (isTableMissing) {
-          // Apenas retorna informando que a tabela falta, sem disparar erro no console
-          return { success: false, tableMissing: true };
-        }
-        return { success: false };
-      }
-      return { success: true };
-    } catch (e) {
-      return { success: false };
-    }
+  async getAISettings(): Promise<AISettings> {
+    const saved = localStorage.getItem('financepro_ai_settings');
+    if (saved) return JSON.parse(saved);
+    return DEFAULT_AI_SETTINGS;
+  },
+
+  async saveAISettings(settings: AISettings) {
+    localStorage.setItem('financepro_ai_settings', JSON.stringify(settings));
   },
 
   getDefaultCategories(): Category[] {

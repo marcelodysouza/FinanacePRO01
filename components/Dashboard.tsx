@@ -1,184 +1,139 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, Legend, AreaChart, Area, LineChart, Line
-} from 'recharts';
-import { Transaction, TransactionType, FinancialForecast } from '../types';
-import { 
-  TrendingUp, TrendingDown, DollarSign, Sparkles, LineChart as LineChartIcon, 
-  Target, Calendar, PieChart as PieIcon, BarChart3, Settings2, Eye, EyeOff, 
-  ArrowUp, ArrowDown, X, GripVertical, AlertCircle, Clock, Bell, Printer, BrainCircuit
-} from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Transaction, TransactionType, FinancialForecast, FinancialGoal } from '../types';
+import { TrendingUp, TrendingDown, DollarSign, Sparkles, BrainCircuit, Target, Clock, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { getFinancialInsights, getFinancialForecast } from '../services/geminiService';
+import { PersistenceService } from '../services/persistenceService';
+import { Link } from 'react-router-dom';
 
-interface DashboardProps {
-  transactions: Transaction[];
-}
-
-const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#0ea5e9'];
-
-const Dashboard: React.FC<DashboardProps> = ({ transactions }) => {
-  const [preset, setPreset] = useState<'all' | 'week' | 'month' | 'year'>('month');
-  const [aiInsights, setAiInsights] = useState<string>('');
+const Dashboard: React.FC<{ transactions: Transaction[] }> = ({ transactions }) => {
+  const [insights, setInsights] = useState('');
   const [forecast, setForecast] = useState<FinancialForecast | null>(null);
-  const [isLoadingAi, setIsLoadingAi] = useState(false);
+  const [goals, setGoals] = useState<FinancialGoal[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const filteredTransactions = useMemo(() => {
+  const currentMonth = useMemo(() => {
     const now = new Date();
-    return transactions.filter(t => {
-      const tDate = new Date(t.date);
-      if (preset === 'week') return (now.getTime() - tDate.getTime()) <= 7 * 24 * 60 * 60 * 1000;
-      if (preset === 'month') return tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear();
-      if (preset === 'year') return tDate.getFullYear() === now.getFullYear();
-      return true;
-    });
-  }, [transactions, preset]);
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
 
   const stats = useMemo(() => {
-    const income = filteredTransactions.filter(t => t.type === TransactionType.INCOME).reduce((acc, t) => acc + t.amount, 0);
-    const expenses = filteredTransactions.filter(t => t.type === TransactionType.EXPENSE).reduce((acc, t) => acc + t.amount, 0);
-    return { income, expenses, balance: income - expenses };
-  }, [filteredTransactions]);
+    const inc = transactions.filter(t => t.type === TransactionType.INCOME).reduce((a, b) => a + b.amount, 0);
+    const exp = transactions.filter(t => t.type === TransactionType.EXPENSE).reduce((a, b) => a + b.amount, 0);
+    const monthExp = transactions.filter(t => t.type === TransactionType.EXPENSE && t.date.startsWith(currentMonth)).reduce((a, b) => a + b.amount, 0);
+    const monthInc = transactions.filter(t => t.type === TransactionType.INCOME && t.date.startsWith(currentMonth)).reduce((a, b) => a + b.amount, 0);
+    return { inc, exp, bal: inc - exp, monthExp, monthBal: monthInc - monthExp };
+  }, [transactions, currentMonth]);
 
   useEffect(() => {
-    const fetchAiData = async () => {
+    const fetchAI = async () => {
+      const g = await PersistenceService.getGoals();
+      setGoals(g);
       if (transactions.length > 0) {
-        setIsLoadingAi(true);
-        const [insights, pred] = await Promise.all([
-          getFinancialInsights(filteredTransactions),
+        setLoading(true);
+        const [text, pred] = await Promise.all([
+          getFinancialInsights(transactions, g),
           getFinancialForecast(transactions)
         ]);
-        setAiInsights(insights);
+        setInsights(text);
         setForecast(pred);
-        setIsLoadingAi(false);
+        setLoading(false);
       }
     };
-    fetchAiData();
-  }, [filteredTransactions, transactions]);
+    fetchAI();
+  }, [transactions]);
+
+  const spendingGoal = goals.find(g => g.type === 'SPENDING_LIMIT' && g.month === currentMonth);
+  const savingsGoal = goals.find(g => g.type === 'SAVINGS_TARGET' && g.month === currentMonth);
 
   const chartData = useMemo(() => {
-    const days: Record<string, any> = {};
-    filteredTransactions.forEach(t => {
-      const d = new Date(t.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-      if (!days[d]) days[d] = { name: d, income: 0, expense: 0 };
-      if (t.type === TransactionType.INCOME) days[d].income += t.amount;
-      else days[d].expense += t.amount;
+    const map: any = {};
+    [...transactions].reverse().forEach(t => {
+      const dateStr = t.date.includes('T') ? t.date : t.date + 'T12:00:00';
+      const key = new Date(dateStr).toLocaleDateString('pt-BR', { month: 'short' });
+      if (!map[key]) map[key] = { name: key, income: 0, expense: 0 };
+      if (t.type === TransactionType.INCOME) map[key].income += t.amount;
+      else map[key].expense += t.amount;
     });
-    return Object.values(days).sort((a, b) => a.name.localeCompare(b.name));
-  }, [filteredTransactions]);
+    return Object.values(map);
+  }, [transactions]);
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Header Estilo Streamlit */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900">Fluxo de Caixa Inteligente</h2>
-          <p className="text-gray-500 text-sm font-medium">Insights em tempo real alimentados por IA</p>
-        </div>
-        <div className="flex bg-gray-100 p-1 rounded-2xl">
-          {(['week', 'month', 'year', 'all'] as const).map(p => (
-            <button 
-              key={p} 
-              onClick={() => setPreset(p)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${preset === p ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-200'}`}
-            >
-              {p === 'all' ? 'Tudo' : p === 'week' ? 'Semana' : p === 'month' ? 'Mês' : 'Ano'}
-            </button>
-          ))}
-        </div>
+    <div className="space-y-8 animate-fade-in dark:text-white">
+      <div>
+        <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter">Dashboard</h1>
+        <p className="text-slate-500 dark:text-slate-400 font-medium">Fluxo de caixa inteligente com Gemini AI.</p>
       </div>
 
-      {/* Métricas Principais */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center"><TrendingUp /></div>
-          <div>
-            <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Receitas</p>
-            <p className="text-2xl font-black text-gray-900">R$ {stats.income.toLocaleString('pt-BR')}</p>
-          </div>
+        <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 shadow-sm">
+          <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center mb-4"><TrendingUp /></div>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Receitas Totais</p>
+          <p className="text-3xl font-black text-slate-900 dark:text-white">R$ {stats.inc.toLocaleString('pt-BR')}</p>
         </div>
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center"><TrendingDown /></div>
-          <div>
-            <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Despesas</p>
-            <p className="text-2xl font-black text-gray-900">R$ {stats.expenses.toLocaleString('pt-BR')}</p>
-          </div>
+        <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 shadow-sm">
+          <div className="w-12 h-12 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-2xl flex items-center justify-center mb-4"><TrendingDown /></div>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Despesas Totais</p>
+          <p className="text-3xl font-black text-slate-900 dark:text-white">R$ {stats.exp.toLocaleString('pt-BR')}</p>
         </div>
-        <div className="bg-indigo-600 p-6 rounded-3xl shadow-xl shadow-indigo-100 flex items-center gap-4 text-white">
-          <div className="w-12 h-12 bg-white/20 text-white rounded-2xl flex items-center justify-center"><DollarSign /></div>
-          <div>
-            <p className="text-xs font-black text-indigo-200 uppercase tracking-widest">Saldo Líquido</p>
-            <p className="text-2xl font-black">R$ {stats.balance.toLocaleString('pt-BR')}</p>
-          </div>
+        <div className="bg-indigo-600 dark:bg-indigo-500 p-8 rounded-[2.5rem] text-white shadow-2xl shadow-indigo-200 dark:shadow-none">
+          <div className="w-12 h-12 bg-white/20 text-white rounded-2xl flex items-center justify-center mb-4"><DollarSign /></div>
+          <p className="text-[10px] font-black text-indigo-100 uppercase tracking-widest mb-1">Saldo Atual</p>
+          <p className="text-3xl font-black">R$ {stats.bal.toLocaleString('pt-BR')}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Gráfico Principal */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
-              <BarChart3 className="text-indigo-600" /> Movimentação Diária
+        <div className="lg:col-span-2 space-y-8">
+           <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 shadow-sm h-[400px]">
+            <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-tight mb-8 flex items-center gap-2">
+              <TrendingUp className="text-indigo-600 dark:text-indigo-400" size={18} /> Histórico Mensal
             </h3>
-          </div>
-          <div className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="80%">
               <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorInc" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorExp" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} />
-                <Tooltip 
-                   contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                />
-                <Area type="monotone" dataKey="income" stroke="#10b981" fillOpacity={1} fill="url(#colorInc)" strokeWidth={3} />
-                <Area type="monotone" dataKey="expense" stroke="#ef4444" fillOpacity={1} fill="url(#colorExp)" strokeWidth={3} />
+                <Tooltip contentStyle={{borderRadius: '16px', border: 'none', backgroundColor: '#1e293b', color: 'white'}} />
+                <Area type="monotone" dataKey="income" stroke="#10b981" fill="url(#colorInc)" strokeWidth={4} />
+                <Area type="monotone" dataKey="expense" stroke="#ef4444" fill="transparent" strokeWidth={4} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* AI Insight Sidebar Style */}
-        <div className="space-y-6">
-          <div className="bg-indigo-900 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10"><BrainCircuit size={80} /></div>
-            <div className="relative z-10">
-              <div className="flex items-center gap-3 mb-4">
-                <Sparkles className="text-indigo-300" size={20} />
-                <h3 className="font-black text-sm uppercase tracking-widest">Análise do Gemini</h3>
-              </div>
-              {isLoadingAi ? (
-                <div className="space-y-2 animate-pulse">
-                  <div className="h-4 bg-white/10 rounded w-full"></div>
-                  <div className="h-4 bg-white/10 rounded w-5/6"></div>
-                  <div className="h-4 bg-white/10 rounded w-4/6"></div>
-                </div>
-              ) : (
-                <p className="text-indigo-100 text-sm font-medium leading-relaxed italic">"{aiInsights}"</p>
-              )}
+        <div className="bg-slate-900 dark:bg-black p-8 rounded-[3rem] text-white relative overflow-hidden flex flex-col justify-between">
+          <div className="absolute top-0 right-0 p-10 opacity-5"><BrainCircuit size={120} /></div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-6 text-indigo-400 font-black text-xs uppercase tracking-widest">
+              <Sparkles size={16} /> Insights da IA
             </div>
+            {loading ? (
+              <div className="space-y-4">
+                <div className="h-4 bg-white/5 rounded w-full animate-pulse"></div>
+                <div className="h-4 bg-white/5 rounded w-4/5 animate-pulse"></div>
+              </div>
+            ) : (
+              <p className="text-sm font-medium italic text-slate-300 leading-relaxed">"{insights}"</p>
+            )}
           </div>
-
+          
           {forecast && (
-            <div className={`p-8 rounded-[2.5rem] border shadow-sm ${forecast.riskLevel === 'HIGH' ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
-               <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-black text-gray-900 text-sm uppercase tracking-tight">Previsão 30 Dias</h4>
-                  <span className={`px-2 py-1 rounded-lg text-[10px] font-black ${forecast.riskLevel === 'HIGH' ? 'bg-red-200 text-red-700' : 'bg-green-200 text-green-700'}`}>
-                    RISCO {forecast.riskLevel}
-                  </span>
-               </div>
-               <p className="text-2xl font-black text-gray-900 mb-2">R$ {forecast.predictedBalance.toLocaleString('pt-BR')}</p>
-               <p className="text-xs text-gray-600 leading-tight">{forecast.explanation}</p>
+            <div className="mt-8 pt-8 border-t border-white/10 relative z-10">
+              <div className="flex justify-between items-end mb-2">
+                <span className="text-[10px] font-black uppercase text-indigo-400">Previsão Próximo Mês</span>
+                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${forecast.riskLevel === 'LOW' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                  RISCO {forecast.riskLevel}
+                </span>
+              </div>
+              <p className="text-3xl font-black text-white">R$ {forecast.predictedBalance.toLocaleString('pt-BR')}</p>
             </div>
           )}
         </div>

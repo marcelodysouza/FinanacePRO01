@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Category, TransactionType, UserRole } from '../types';
-import { Plus, Trash2, Tag, ArrowUpCircle, ArrowDownCircle, Pencil, X, Check, AlertCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Category, TransactionType, UserRole, AISettings } from '../types';
+import { Plus, Trash2, Tag, Pencil, X, Check, CheckCircle2, AlertTriangle, BrainCircuit, Sparkles, Save, RotateCcw } from 'lucide-react';
+import { PersistenceService } from '../services/persistenceService';
 
 interface CategoryManagementProps {
   categories: Category[];
@@ -14,24 +15,26 @@ interface CategoryManagementProps {
 const CategoryManagement: React.FC<CategoryManagementProps> = ({ categories, onAdd, onUpdate, onDelete, userRole }) => {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<TransactionType>(TransactionType.INCOME);
-  
-  // State for inline editing
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editType, setEditType] = useState<TransactionType>(TransactionType.INCOME);
-
-  // State for deletion confirmation
-  const [idToDelete, setIdToDelete] = useState<string | null>(null);
-
-  // State for success feedback
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Clear success message after timeout
+  // AI Prompt Settings
+  const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
+  const [isSavingAI, setIsSavingAI] = useState(false);
+
+  useEffect(() => {
+    const fetchAI = async () => {
+      const settings = await PersistenceService.getAISettings();
+      setAiSettings(settings);
+    };
+    fetchAI();
+  }, []);
+
   useEffect(() => {
     if (successMessage) {
-      const timer = setTimeout(() => {
-        setSuccessMessage(null);
-      }, 3000);
+      const timer = setTimeout(() => setSuccessMessage(null), 3000);
       return () => clearTimeout(timer);
     }
   }, [successMessage]);
@@ -42,238 +45,194 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({ categories, onA
     if (newName.trim()) {
       onAdd(newName.trim(), newType);
       setNewName('');
-      showSuccess('Categoria criada com sucesso!');
+      setSuccessMessage('Categoria criada com sucesso!');
     }
-  };
-
-  const showSuccess = (msg: string) => {
-    setSuccessMessage(msg);
-  };
-
-  const startEditing = (category: Category) => {
-    setEditingId(category.id);
-    setEditName(category.name);
-    setEditType(category.type);
-  };
-
-  const cancelEditing = () => {
-    setEditingId(null);
-    setEditName('');
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId && editName.trim()) {
-      try {
-        await onUpdate(editingId, editName.trim(), editType);
-        setEditingId(null);
-        showSuccess('Categoria atualizada com sucesso!');
-      } catch (error) {
-        console.error("Erro ao atualizar categoria:", error);
-      }
+      await onUpdate(editingId, editName.trim(), editType);
+      setEditingId(null);
+      setSuccessMessage('Categoria atualizada!');
     }
   };
 
-  const handleDeleteConfirm = () => {
-    if (idToDelete) {
-      onDelete(idToDelete);
-      setIdToDelete(null);
-      showSuccess('Categoria removida com sucesso!');
-    }
+  const handleSaveAISettings = async () => {
+    if (!aiSettings || userRole !== UserRole.ADVANCED) return;
+    setIsSavingAI(true);
+    await PersistenceService.saveAISettings(aiSettings);
+    setIsSavingAI(false);
+    setSuccessMessage('Configurações de IA aplicadas!');
   };
 
-  const renderCategoryItem = (category: Category) => {
-    const isEditing = editingId === category.id;
-
-    if (isEditing) {
-      return (
-        <form key={category.id} onSubmit={handleUpdate} className="p-4 bg-indigo-50/50 flex flex-col sm:flex-row gap-3 items-center animate-fade-in">
-          <div className="flex-1 w-full relative">
-            <input
-              type="text"
-              className="w-full px-4 py-2 bg-white border border-indigo-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-sm"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <select
-            className="w-full sm:w-auto px-3 py-2 bg-white border border-indigo-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-xs"
-            value={editType}
-            onChange={(e) => setEditType(e.target.value as TransactionType)}
-          >
-            <option value={TransactionType.INCOME}>Receita</option>
-            <option value={TransactionType.EXPENSE}>Despesa</option>
-          </select>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="p-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all shadow-sm cursor-pointer"
-              title="Salvar Alterações"
-            >
-              <Check size={18} />
-            </button>
-            <button
-              type="button"
-              onClick={cancelEditing}
-              className="p-2 bg-gray-200 text-gray-600 rounded-xl hover:bg-gray-300 transition-all cursor-pointer"
-              title="Cancelar"
-            >
-              <X size={18} />
-            </button>
-          </div>
-        </form>
-      );
+  const handleResetAI = async () => {
+    if (window.confirm('Deseja restaurar os prompts padrões da IA? Todas as personalizações serão perdidas.')) {
+      localStorage.removeItem('financepro_ai_settings');
+      const fresh = await PersistenceService.getAISettings();
+      setAiSettings(fresh);
+      setSuccessMessage('Prompts restaurados para o padrão.');
     }
-
-    return (
-      <div key={category.id} className="p-4 flex justify-between items-center group hover:bg-gray-50 transition-colors">
-        <div className="flex items-center gap-3">
-          <span className="font-bold text-gray-800">{category.name}</span>
-        </div>
-        {userRole === UserRole.ADVANCED && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-            <button
-              onClick={() => startEditing(category)}
-              className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
-              title="Editar Categoria"
-            >
-              <Pencil size={18} />
-            </button>
-            <button
-              onClick={() => setIdToDelete(category.id)}
-              className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
-              title="Excluir Categoria"
-            >
-              <Trash2 size={18} />
-            </button>
-          </div>
-        )}
-      </div>
-    );
   };
 
   return (
-    <div className="space-y-8 animate-fade-in relative">
-      {/* Success Notification Toast */}
+    <div className="space-y-12 animate-fade-in pb-20">
       {successMessage && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] animate-bounce-in">
-          <div className="bg-green-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border border-white/20 backdrop-blur-md">
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <CheckCircle2 size={18} />
-            </div>
-            <span className="font-black text-sm tracking-tight">{successMessage}</span>
-            <button onClick={() => setSuccessMessage(null)} className="ml-2 hover:bg-white/10 p-1 rounded-lg transition-colors">
-              <X size={16} />
-            </button>
+          <div className="bg-green-600 text-white px-8 py-4 rounded-3xl shadow-2xl flex items-center gap-3 border border-white/20 backdrop-blur-md">
+            <CheckCircle2 size={20} />
+            <span className="font-black text-sm uppercase tracking-tight">{successMessage}</span>
           </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {idToDelete && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full text-center shadow-2xl animate-scale-in">
-            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <AlertTriangle size={32} />
-            </div>
-            <h3 className="text-xl font-black text-gray-900 mb-2">Excluir Categoria?</h3>
-            <p className="text-gray-500 mb-8 font-medium">
-              Tem certeza que deseja excluir esta categoria? Ela será removida de todas as transações associadas.
-            </p>
-            <div className="flex gap-4">
-              <button 
-                onClick={() => setIdToDelete(null)} 
-                className="flex-1 py-4 font-bold text-gray-400 hover:bg-gray-100 rounded-2xl transition-all"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleDeleteConfirm} 
-                className="flex-1 py-4 font-black text-white bg-red-600 hover:bg-red-700 rounded-2xl shadow-xl shadow-red-100 transition-all"
-              >
-                Excluir
-              </button>
-            </div>
-          </div>
-          {/* Backdrop closer */}
-          <div className="absolute inset-0 -z-10" onClick={() => setIdToDelete(null)} />
         </div>
       )}
 
       <div>
-        <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-3">
-          <Tag className="text-indigo-600" size={32} />
-          Gestão de Categorias
+        <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-4">
+          <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
+            <Tag size={24} />
+          </div>
+          Configurações do Sistema
         </h2>
-        <p className="text-gray-500 font-medium">Configure as categorias de receitas e despesas do sistema.</p>
+        <p className="text-gray-500 font-medium ml-1">Gerencie categorias de fluxo e o comportamento da IA.</p>
       </div>
 
-      {userRole === UserRole.ADVANCED ? (
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
-          <div className="mb-6 flex items-center gap-2 text-indigo-600">
-            <Plus size={20} className="animate-pulse" />
-            <span className="text-sm font-black uppercase tracking-widest">Nova Categoria</span>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+        <div className="space-y-8">
+          <div className="flex items-center gap-2 mb-2">
+            <Tag className="text-indigo-600" size={20} />
+            <h3 className="text-lg font-black uppercase tracking-tight text-slate-800">Categorias Financeiras</h3>
           </div>
-          <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Tag className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="text"
-                placeholder="Ex: Consultoria, Alimentação..."
-                className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-transparent rounded-2xl outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all font-bold"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-              />
+
+          {userRole === UserRole.ADVANCED && (
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                <input
+                  type="text"
+                  placeholder="Nome da categoria (ex: Alimentação)..."
+                  className="w-full px-6 py-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border border-transparent transition-all"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+                <div className="flex gap-4">
+                  <select
+                    className="flex-1 px-6 py-4 bg-gray-50 rounded-2xl font-bold text-sm border border-transparent appearance-none"
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value as TransactionType)}
+                  >
+                    <option value={TransactionType.INCOME}>Entrada (Receita)</option>
+                    <option value={TransactionType.EXPENSE}>Saída (Despesa)</option>
+                  </select>
+                  <button type="submit" className="bg-indigo-600 text-white px-10 rounded-2xl font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95">Criar</button>
+                </div>
+              </form>
             </div>
-            <select
-              className="md:w-48 px-4 py-4 bg-gray-50 border border-transparent rounded-2xl outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all font-black text-sm text-gray-700"
-              value={newType}
-              onChange={(e) => setNewType(e.target.value as TransactionType)}
-            >
-              <option value={TransactionType.INCOME}>Receita</option>
-              <option value={TransactionType.EXPENSE}>Despesa</option>
-            </select>
-            <button
-              type="submit"
-              className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95 cursor-pointer"
-            >
-              Criar
-            </button>
-          </form>
-        </div>
-      ) : (
-        <div className="bg-orange-50 p-6 rounded-[2rem] border border-orange-100 flex items-center gap-4">
-          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-orange-500 shadow-sm shrink-0">
-            <AlertCircle size={24} />
-          </div>
-          <div>
-            <p className="text-orange-900 font-black">Acesso Restrito</p>
-            <p className="text-orange-700 text-sm">Apenas usuários com perfil avançado podem gerenciar categorias do sistema.</p>
-          </div>
-        </div>
-      )}
+          )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Income Categories */}
-        <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 bg-green-50 border-b border-green-100 flex items-center gap-3">
-            <ArrowUpCircle className="text-green-600" />
-            <h3 className="font-black text-green-900 uppercase tracking-tight">Categorias de Receita</h3>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {categories.filter(c => c.type === TransactionType.INCOME).map(renderCategoryItem)}
+          <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-50">
+            {categories.length > 0 ? categories.map(c => (
+              <div key={c.id} className="p-5 flex justify-between items-center group hover:bg-gray-50/50 transition-all">
+                {editingId === c.id ? (
+                  <form onSubmit={handleUpdate} className="flex-1 flex gap-3">
+                    <input className="flex-1 px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-xl font-bold outline-none" value={editName} onChange={e => setEditName(e.target.value)} />
+                    <button type="submit" className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"><Check size={20} /></button>
+                    <button type="button" onClick={() => setEditingId(null)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"><X size={20} /></button>
+                  </form>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-4">
+                      <div className={`w-3 h-3 rounded-full shadow-sm ${c.type === TransactionType.INCOME ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                      <span className="font-black text-slate-800 tracking-tight">{c.name}</span>
+                      <span className="text-[10px] font-black uppercase text-slate-300 tracking-widest">{c.type === TransactionType.INCOME ? 'Entrada' : 'Saída'}</span>
+                    </div>
+                    {userRole === UserRole.ADVANCED && (
+                      <div className="flex opacity-0 group-hover:opacity-100 transition-all scale-95 group-hover:scale-100">
+                        <button onClick={() => { setEditingId(c.id); setEditName(c.name); setEditType(c.type); }} className="p-2 text-indigo-400 hover:bg-indigo-50 rounded-xl transition-all"><Pencil size={18} /></button>
+                        <button onClick={() => onDelete(c.id)} className="p-2 text-slate-300 hover:text-red-500 rounded-xl transition-all"><Trash2 size={18} /></button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )) : (
+              <div className="p-12 text-center">
+                <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Nenhuma categoria cadastrada.</p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Expense Categories */}
-        <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 bg-red-50 border-b border-red-100 flex items-center gap-3">
-            <ArrowDownCircle className="text-red-600" />
-            <h3 className="font-black text-red-900 uppercase tracking-tight">Categorias de Despesa</h3>
+        <div className="space-y-8">
+          <div className="flex items-center gap-2 mb-2">
+            <BrainCircuit className="text-indigo-600" size={20} />
+            <h3 className="text-lg font-black uppercase tracking-tight text-slate-800">Cérebro IA (Gemini Prompts)</h3>
           </div>
-          <div className="divide-y divide-gray-50">
-            {categories.filter(c => c.type === TransactionType.EXPENSE).map(renderCategoryItem)}
+
+          <div className="bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl shadow-indigo-100/20 text-white space-y-8 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
+              <BrainCircuit size={160} />
+            </div>
+            
+            <div className="p-5 bg-white/5 rounded-3xl flex items-start gap-4 border border-white/10 backdrop-blur-sm relative z-10">
+              <Sparkles className="text-indigo-400 shrink-0" size={24} />
+              <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                Configure como o Gemini AI interpreta seus dados financeiros. Personalize o tom de voz e os critérios de extração de recibos para se adequar ao seu negócio.
+              </p>
+            </div>
+
+            {aiSettings ? (
+              <div className="space-y-6 relative z-10">
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Instruções para Insights Financeiros</label>
+                  </div>
+                  <textarea
+                    className="w-full p-5 bg-white/5 border border-white/10 rounded-[1.5rem] outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm min-h-[140px] text-slate-100 transition-all placeholder:text-slate-600"
+                    placeholder="Ex: Você é um CFO pragmático..."
+                    value={aiSettings.insightsPrompt}
+                    onChange={(e) => setAiSettings({ ...aiSettings, insightsPrompt: e.target.value })}
+                    disabled={userRole !== UserRole.ADVANCED}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Instruções para Análise de Recibos (OCR)</label>
+                  </div>
+                  <textarea
+                    className="w-full p-5 bg-white/5 border border-white/10 rounded-[1.5rem] outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm min-h-[140px] text-slate-100 transition-all placeholder:text-slate-600"
+                    placeholder="Ex: Identifique o CNPJ e o valor total..."
+                    value={aiSettings.receiptPrompt}
+                    onChange={(e) => setAiSettings({ ...aiSettings, receiptPrompt: e.target.value })}
+                    disabled={userRole !== UserRole.ADVANCED}
+                  />
+                </div>
+
+                {userRole === UserRole.ADVANCED && (
+                  <div className="flex gap-4 pt-4">
+                    <button
+                      onClick={handleSaveAISettings}
+                      disabled={isSavingAI}
+                      className="flex-1 bg-indigo-600 text-white py-5 rounded-2xl font-black flex items-center justify-center gap-3 shadow-xl shadow-indigo-900/40 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      {isSavingAI ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Save size={20} />}
+                      Atualizar Configurações de IA
+                    </button>
+                    <button
+                      onClick={handleResetAI}
+                      className="px-6 bg-white/10 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-white/20 transition-all border border-white/10"
+                      title="Restaurar Padrões"
+                    >
+                      <RotateCcw size={20} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="py-20 flex flex-col items-center justify-center gap-4">
+                <BrainCircuit className="animate-pulse text-indigo-500" size={48} />
+                <p className="text-xs font-black uppercase tracking-widest text-slate-500">Sincronizando Cérebro...</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
